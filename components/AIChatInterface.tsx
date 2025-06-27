@@ -46,7 +46,13 @@ export default function AiChatInterface() {
         onClearData={clearAllData}
       />
       <UsageTracker open={isUsageOpen} setOpen={setUsageOpen} />
-      <PromptLibrary open={isLibraryOpen} setOpen={setLibraryOpen} />
+      <PromptLibrary
+        open={isLibraryOpen}
+        setOpen={setLibraryOpen}
+        onSelectPrompt={(promptContent) => {
+          setInput(input ? `${input.trim()} ${promptContent}` : promptContent);
+        }}
+      />
 
       <div className="w-full h-full bg-black border border-gray-800 rounded-xl shadow-2xl flex relative overflow-hidden">
         {!isSidebarOpen && (

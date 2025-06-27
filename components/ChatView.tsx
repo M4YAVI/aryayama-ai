@@ -27,6 +27,10 @@ import {
 import { FC, FormEvent, useEffect, useRef, useState } from 'react';
 import ChatMessageComponent from './ChatMessage';
 import ChatNavigator from './ChatNavigator';
+import {
+  PerformanceMetrics,
+  StreamingPerformance,
+} from './StreamingPerformance';
 import { SystemPromptDialog } from './SystemPromptDialog';
 
 interface ChatViewProps {
@@ -44,6 +48,7 @@ interface ChatViewProps {
   onDeleteMessage: (id: string) => void;
   onUpdateSystemPrompt: (prompt: string) => void;
   onStopStreaming: () => void;
+  performanceMetrics: PerformanceMetrics | null;
 }
 
 const ChatView: FC<ChatViewProps> = ({
@@ -57,41 +62,35 @@ const ChatView: FC<ChatViewProps> = ({
   onDeleteMessage,
   onUpdateSystemPrompt,
   onStopStreaming,
+  performanceMetrics,
 }) => {
-  // State for UI elements
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isNavigatorOpen, setNavigatorOpen] = useState(false);
   const [isSystemPromptOpen, setSystemPromptOpen] = useState(false);
 
-  // Refs for file inputs and scrolling
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Custom hook for voice input
   const { isListening, startListening, stopListening, isSupported } =
     useSpeechRecognition({
       onResult: (transcript) => setInput(transcript),
     });
 
-  // Effect to automatically scroll to the bottom of the chat on new messages
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isStreaming]);
 
-  // Handler for saving the system prompt and closing the dialog
   const handleSaveSystemPrompt = (newPrompt: string) => {
     onUpdateSystemPrompt(newPrompt);
     setSystemPromptOpen(false);
   };
 
-  // Handler for the Chat Navigator to jump to a specific message
   const handleJumpToMessage = (messageId: string) => {
     const element = document.getElementById(`message-${messageId}`);
     element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  // Handler to regenerate the last bot response
   const handleRegenerate = () => {
     if (!thread || !messages || messages.length === 0) return;
     const lastUserMessage = [...messages]
@@ -99,9 +98,7 @@ const ChatView: FC<ChatViewProps> = ({
       .find((m) => m.role === 'user');
     if (lastUserMessage) {
       const lastBotMessage = messages[messages.length - 1];
-      if (lastBotMessage.role === 'bot') {
-        onDeleteMessage(lastBotMessage.id);
-      }
+      if (lastBotMessage.role === 'bot') onDeleteMessage(lastBotMessage.id);
       onSendMessage(
         lastUserMessage.content,
         thread.id,
@@ -110,17 +107,15 @@ const ChatView: FC<ChatViewProps> = ({
     }
   };
 
-  // Handler for file/image uploads
   const handleFileChange = (
     e: React.ChangeEvent<HTMLInputElement>,
     type: 'image' | 'file'
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (type === 'image') {
       const reader = new FileReader();
-      reader.onload = (loadEvent) => {
+      reader.onload = (loadEvent) =>
         setAttachments((prev) => [
           ...prev,
           {
@@ -129,7 +124,6 @@ const ChatView: FC<ChatViewProps> = ({
             url: loadEvent.target?.result as string,
           },
         ]);
-      };
       reader.readAsDataURL(file);
     } else {
       setAttachments((prev) => [
@@ -137,10 +131,9 @@ const ChatView: FC<ChatViewProps> = ({
         { type: 'file', name: file.name, url: '' },
       ]);
     }
-    e.target.value = ''; // Allow re-uploading the same file
+    e.target.value = '';
   };
 
-  // Handler for submitting the main form (sending a message)
   const handleSend = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if ((!input.trim() && attachments.length === 0) || !thread) return;
@@ -176,7 +169,6 @@ const ChatView: FC<ChatViewProps> = ({
               onSave={handleSaveSystemPrompt}
             />
           </Dialog>
-
           <button
             onClick={() => setNavigatorOpen(true)}
             className="p-2 text-gray-400 hover:text-white"
@@ -241,6 +233,12 @@ const ChatView: FC<ChatViewProps> = ({
         </div>
       )}
 
+      {(isStreaming || performanceMetrics) && performanceMetrics && (
+        <div className="flex-shrink-0 border-t border-gray-800">
+          <StreamingPerformance metrics={performanceMetrics} />
+        </div>
+      )}
+
       <div className="flex-shrink-0 p-4 border-t border-gray-800">
         <form onSubmit={handleSend} className="flex items-center gap-2">
           <input
@@ -256,7 +254,6 @@ const ChatView: FC<ChatViewProps> = ({
             onChange={(e) => handleFileChange(e, 'file')}
             className="hidden"
           />
-
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -279,7 +276,6 @@ const ChatView: FC<ChatViewProps> = ({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
           <input
             type="text"
             value={input}
@@ -292,7 +288,6 @@ const ChatView: FC<ChatViewProps> = ({
             disabled={isStreaming}
             className="bg-transparent w-full focus:outline-none placeholder-gray-500 disabled:opacity-50"
           />
-
           {isSupported && (
             <Button
               type="button"
@@ -309,7 +304,6 @@ const ChatView: FC<ChatViewProps> = ({
               )}
             </Button>
           )}
-
           {isStreaming ? (
             <Button
               type="button"

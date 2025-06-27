@@ -1,4 +1,5 @@
 // /hooks/useChat.ts
+import { PerformanceMetrics } from '@/components/StreamingPerformance';
 import { db } from '@/lib/db';
 import { ChatAttachment, ChatMessage } from '@/types';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -13,15 +14,18 @@ export function useChat(initialThreadId: string | null = null) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
 
-  // Ref to hold the AbortController for the current fetch request
+  // State for real-time performance metrics
+  const [performanceMetrics, setPerformanceMetrics] =
+    useState<PerformanceMetrics | null>(null);
+
+  // Ref for AbortController to stop streaming
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Dexie live queries to automatically update the UI when the database changes
+  // Dexie live queries
   const threads = useLiveQuery(
     () => db.threads.orderBy('createdAt').reverse().toArray(),
     []
   );
-
   const messages = useLiveQuery(
     () =>
       activeThreadId
@@ -32,20 +36,19 @@ export function useChat(initialThreadId: string | null = null) {
         : [],
     [activeThreadId]
   );
-
   const activeThread = useLiveQuery(
     () => (activeThreadId ? db.threads.get(activeThreadId) : undefined),
     [activeThreadId]
   );
 
-  // Effect to automatically select the first chat thread on initial load
+  // Effect to select first thread on load
   useEffect(() => {
     if (!activeThreadId && threads && threads.length > 0) {
       setActiveThreadId(threads[0].id);
     }
   }, [threads, activeThreadId]);
 
-  // Function to abort the current streaming fetch request
+  // Handler to stop the fetch stream
   const handleStopStreaming = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -53,7 +56,7 @@ export function useChat(initialThreadId: string | null = null) {
     }
   }, []);
 
-  // Function to create a new, empty chat thread
+  // Handler to create a new chat
   const handleNewChat = useCallback(async () => {
     const newThreadId = nanoid();
     await db.threads.add({
@@ -65,7 +68,7 @@ export function useChat(initialThreadId: string | null = null) {
     setSidebarOpen(true);
   }, []);
 
-  // Function to delete a chat thread and all associated messages
+  // Handler to delete a thread
   const handleDeleteThread = useCallback(
     async (threadId: string) => {
       const newActiveThread = threads?.find((t) => t.id !== threadId);
@@ -73,7 +76,6 @@ export function useChat(initialThreadId: string | null = null) {
         await db.threads.delete(threadId);
         await db.messages.where('threadId').equals(threadId).delete();
       });
-      // If we deleted the active thread, switch to another one or to null
       if (activeThreadId === threadId) {
         setActiveThreadId(newActiveThread?.id || null);
       }
@@ -81,9 +83,9 @@ export function useChat(initialThreadId: string | null = null) {
     [activeThreadId, threads]
   );
 
-  // Function to track API usage stats
+  // Handler to track usage
   const incrementRequestCount = useCallback(async () => {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
     await db.transaction('rw', db.usageStats, async () => {
       let stats = await db.usageStats.get('singleton');
       if (!stats) {
@@ -105,31 +107,28 @@ export function useChat(initialThreadId: string | null = null) {
     });
   }, []);
 
-  // Function to completely wipe all application data from the browser
+  // Handler to clear all data
   const clearAllData = useCallback(async () => {
     await db.delete();
     await db.open();
-    window.location.reload(); // Reload the app to reset all component state
+    window.location.reload();
   }, []);
 
-  // Function to handle editing a message's content
   const handleEditMessage = async (messageId: string, newContent: string) => {
     await db.messages.update(messageId, { content: newContent });
   };
 
-  // Function to handle deleting a single message
   const handleDeleteMessage = async (messageId: string) => {
     await db.messages.delete(messageId);
   };
 
-  // Function to update the system prompt for the active thread
   const handleUpdateSystemPrompt = async (prompt: string) => {
     if (activeThreadId) {
       await db.threads.update(activeThreadId, { systemPrompt: prompt });
     }
   };
 
-  // Main function to send a message to the AI and handle the streaming response
+  // Main handler for sending a message and calculating performance
   const handleSendMessage = useCallback(
     async (
       content: string,
@@ -142,7 +141,6 @@ export function useChat(initialThreadId: string | null = null) {
       )
         return;
 
-      // Create a new controller for this specific request
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
@@ -156,7 +154,6 @@ export function useChat(initialThreadId: string | null = null) {
         createdAt: new Date(),
         attachments: attachments || [],
       };
-
       await db.messages.add(userMessage);
 
       const messageCount = await db.messages
@@ -172,13 +169,20 @@ export function useChat(initialThreadId: string | null = null) {
       }
 
       setIsStreaming(true);
+      const startTime = Date.now();
+      let firstTokenTime: number | null = null;
+      setPerformanceMetrics({
+        timeToFirstToken: null,
+        tokensPerSecond: 0,
+        totalTokens: 0,
+        totalTime: 0,
+      });
 
       const messageHistory = await db.messages
         .where('threadId')
         .equals(threadId)
         .sortBy('createdAt');
       const systemPrompt = activeThread?.systemPrompt;
-
       const apiRequestBody = {
         messages: [
           ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
@@ -191,12 +195,10 @@ export function useChat(initialThreadId: string | null = null) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(apiRequestBody),
-          signal: controller.signal, // Pass the signal to the fetch request
+          signal: controller.signal,
         });
-
-        if (!response.ok || !response.body) {
+        if (!response.ok || !response.body)
           throw new Error(`API Error: ${response.statusText}`);
-        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -214,13 +216,28 @@ export function useChat(initialThreadId: string | null = null) {
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
+          if (firstTokenTime === null) firstTokenTime = Date.now();
+
           botMessageContent += decoder.decode(value, { stream: true });
+
+          const estimatedTokens = Math.round(botMessageContent.length / 4);
+          const elapsedTime = Date.now() - startTime;
+          const tokensPerSecond = estimatedTokens / (elapsedTime / 1000) || 0;
+
+          setPerformanceMetrics({
+            timeToFirstToken: firstTokenTime
+              ? (firstTokenTime - startTime) / 1000
+              : null,
+            tokensPerSecond: tokensPerSecond,
+            totalTokens: estimatedTokens,
+            totalTime: elapsedTime,
+          });
+
           await db.messages.update(botMessageId, {
             content: botMessageContent,
           });
         }
       } catch (error: any) {
-        // Gracefully handle user-initiated aborts
         if (error.name === 'AbortError') {
           console.log('Stream stopped by user.');
         } else {
@@ -234,15 +251,15 @@ export function useChat(initialThreadId: string | null = null) {
           });
         }
       } finally {
-        // This block runs whether the stream completes or is aborted
         setIsStreaming(false);
+        setTimeout(() => setPerformanceMetrics(null), 5000);
         abortControllerRef.current = null;
       }
     },
     [isStreaming, activeThread, incrementRequestCount]
   );
 
-  // Return all state and functions to be used by the UI components
+  // Return all state and functions
   return {
     threads,
     activeThread,
@@ -261,5 +278,6 @@ export function useChat(initialThreadId: string | null = null) {
     handleUpdateSystemPrompt,
     clearAllData,
     handleStopStreaming,
+    performanceMetrics,
   };
 }

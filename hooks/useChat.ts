@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { ChatAttachment, ChatMessage } from '@/types';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { nanoid } from 'nanoid';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function useChat(initialThreadId: string | null = null) {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(
@@ -13,7 +13,10 @@ export function useChat(initialThreadId: string | null = null) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
 
-  // Live queries to keep UI in sync with the database
+  // Ref to hold the AbortController for the current fetch request
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Dexie live queries to automatically update the UI when the database changes
   const threads = useLiveQuery(
     () => db.threads.orderBy('createdAt').reverse().toArray(),
     []
@@ -35,14 +38,22 @@ export function useChat(initialThreadId: string | null = null) {
     [activeThreadId]
   );
 
-  // Automatically select the first chat thread on initial load
+  // Effect to automatically select the first chat thread on initial load
   useEffect(() => {
     if (!activeThreadId && threads && threads.length > 0) {
       setActiveThreadId(threads[0].id);
     }
   }, [threads, activeThreadId]);
 
-  // Function to create a new chat
+  // Function to abort the current streaming fetch request
+  const handleStopStreaming = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, []);
+
+  // Function to create a new, empty chat thread
   const handleNewChat = useCallback(async () => {
     const newThreadId = nanoid();
     await db.threads.add({
@@ -54,7 +65,7 @@ export function useChat(initialThreadId: string | null = null) {
     setSidebarOpen(true);
   }, []);
 
-  // Function to delete a chat thread and all its messages
+  // Function to delete a chat thread and all associated messages
   const handleDeleteThread = useCallback(
     async (threadId: string) => {
       const newActiveThread = threads?.find((t) => t.id !== threadId);
@@ -62,7 +73,7 @@ export function useChat(initialThreadId: string | null = null) {
         await db.threads.delete(threadId);
         await db.messages.where('threadId').equals(threadId).delete();
       });
-      // If we deleted the active thread, switch to another one
+      // If we deleted the active thread, switch to another one or to null
       if (activeThreadId === threadId) {
         setActiveThreadId(newActiveThread?.id || null);
       }
@@ -76,7 +87,6 @@ export function useChat(initialThreadId: string | null = null) {
     await db.transaction('rw', db.usageStats, async () => {
       let stats = await db.usageStats.get('singleton');
       if (!stats) {
-        // Initialize if it doesn't exist
         stats = {
           id: 'singleton',
           totalRequests: 1,
@@ -84,7 +94,6 @@ export function useChat(initialThreadId: string | null = null) {
           lastResetDate: today,
         };
       } else {
-        // Reset daily count if the date has changed
         if (stats.lastResetDate !== today) {
           stats.todayRequests = 0;
           stats.lastResetDate = today;
@@ -96,14 +105,31 @@ export function useChat(initialThreadId: string | null = null) {
     });
   }, []);
 
-  // Function to completely wipe the database
+  // Function to completely wipe all application data from the browser
   const clearAllData = useCallback(async () => {
-    await db.delete(); // Deletes the entire database
-    await db.open(); // Re-creates an empty database
-    window.location.reload(); // Reload the app to reset all state
+    await db.delete();
+    await db.open();
+    window.location.reload(); // Reload the app to reset all component state
   }, []);
 
-  // Main function to send a message
+  // Function to handle editing a message's content
+  const handleEditMessage = async (messageId: string, newContent: string) => {
+    await db.messages.update(messageId, { content: newContent });
+  };
+
+  // Function to handle deleting a single message
+  const handleDeleteMessage = async (messageId: string) => {
+    await db.messages.delete(messageId);
+  };
+
+  // Function to update the system prompt for the active thread
+  const handleUpdateSystemPrompt = async (prompt: string) => {
+    if (activeThreadId) {
+      await db.threads.update(activeThreadId, { systemPrompt: prompt });
+    }
+  };
+
+  // Main function to send a message to the AI and handle the streaming response
   const handleSendMessage = useCallback(
     async (
       content: string,
@@ -116,7 +142,10 @@ export function useChat(initialThreadId: string | null = null) {
       )
         return;
 
-      // Track this request
+      // Create a new controller for this specific request
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       await incrementRequestCount();
 
       const userMessage: ChatMessage = {
@@ -130,7 +159,6 @@ export function useChat(initialThreadId: string | null = null) {
 
       await db.messages.add(userMessage);
 
-      // If it's the first message, update the thread title automatically
       const messageCount = await db.messages
         .where('threadId')
         .equals(threadId)
@@ -163,6 +191,7 @@ export function useChat(initialThreadId: string | null = null) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(apiRequestBody),
+          signal: controller.signal, // Pass the signal to the fetch request
         });
 
         if (!response.ok || !response.body) {
@@ -185,42 +214,33 @@ export function useChat(initialThreadId: string | null = null) {
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          botMessageContent += chunk;
+          botMessageContent += decoder.decode(value, { stream: true });
           await db.messages.update(botMessageId, {
             content: botMessageContent,
           });
         }
-      } catch (error) {
-        console.error('Failed to fetch bot response:', error);
-        await db.messages.add({
-          id: nanoid(),
-          threadId,
-          role: 'bot',
-          content: 'Sorry, I ran into a problem. Please try again.',
-          createdAt: new Date(),
-        });
+      } catch (error: any) {
+        // Gracefully handle user-initiated aborts
+        if (error.name === 'AbortError') {
+          console.log('Stream stopped by user.');
+        } else {
+          console.error('Failed to fetch bot response:', error);
+          await db.messages.add({
+            id: nanoid(),
+            threadId,
+            role: 'bot',
+            content: 'Sorry, I ran into a problem. Please try again.',
+            createdAt: new Date(),
+          });
+        }
       } finally {
+        // This block runs whether the stream completes or is aborted
         setIsStreaming(false);
+        abortControllerRef.current = null;
       }
     },
     [isStreaming, activeThread, incrementRequestCount]
   );
-
-  const handleEditMessage = async (messageId: string, newContent: string) => {
-    await db.messages.update(messageId, { content: newContent });
-  };
-
-  const handleDeleteMessage = async (messageId: string) => {
-    await db.messages.delete(messageId);
-  };
-
-  const handleUpdateSystemPrompt = async (prompt: string) => {
-    if (activeThreadId) {
-      await db.threads.update(activeThreadId, { systemPrompt: prompt });
-    }
-  };
 
   // Return all state and functions to be used by the UI components
   return {
@@ -240,5 +260,6 @@ export function useChat(initialThreadId: string | null = null) {
     handleDeleteMessage,
     handleUpdateSystemPrompt,
     clearAllData,
+    handleStopStreaming,
   };
 }

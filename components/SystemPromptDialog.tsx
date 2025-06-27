@@ -3,6 +3,7 @@
 
 import { Button } from '@/components/ui/button';
 import {
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -14,7 +15,9 @@ import { BrainCircuit } from 'lucide-react';
 import { FC, useEffect, useState } from 'react';
 
 interface SystemPromptDialogProps {
+  // The current system prompt value from the parent
   initialPrompt: string;
+  // Callback to save the updated prompt. The parent will handle closing the dialog.
   onSave: (newPrompt: string) => void;
 }
 
@@ -56,10 +59,10 @@ export const SystemPromptDialog: FC<SystemPromptDialogProps> = ({
       </div>
 
       <DialogFooter>
-        {/* The Dialog will be closed by its onOpenChange handler in the parent */}
-        <Button variant="ghost" type="button">
-          Cancel
-        </Button>
+        {/* Using DialogClose is the idiomatic way to create a cancel button */}
+        <DialogClose asChild>
+          <Button variant="ghost">Cancel</Button>
+        </DialogClose>
         <Button onClick={handleSaveClick}>Save</Button>
       </DialogFooter>
     </DialogContent>

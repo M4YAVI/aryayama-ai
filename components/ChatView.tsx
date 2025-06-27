@@ -41,13 +41,7 @@ import {
 import { SystemPromptDialog } from './SystemPromptDialog';
 
 // List of available models for the dropdown
-const GEMINI_MODELS = [
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-  {
-    id: 'gemini-2.5-flash-lite-preview-06–17',
-    name: 'Gemini 2.5 Flash Lite Preview',
-  },
-];
+const GEMINI_MODELS = [{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' }];
 
 interface ChatViewProps {
   thread: ChatThread | undefined;

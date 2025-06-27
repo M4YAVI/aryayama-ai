@@ -5,15 +5,16 @@ import Dexie, { Table } from 'dexie';
 export class MySubClassedDexie extends Dexie {
   threads!: Table<ChatThread>;
   messages!: Table<ChatMessage>;
-  prompts!: Table<Prompt>; // New table for prompts
-  usageStats!: Table<UsageStats>; // New table for usage
+  prompts!: Table<Prompt>;
+  usageStats!: Table<UsageStats>;
 
   constructor() {
     super('aiChatDatabase');
-    // Bump the version number due to schema change
-    this.version(2).stores({
+    // --- BUMP THE VERSION NUMBER TO 3 ---
+    this.version(3).stores({
       threads: 'id, createdAt',
-      messages: 'id, threadId, createdAt',
+      // Add 'reasoning' to the messages schema
+      messages: 'id, threadId, createdAt, reasoning',
       prompts: 'id, title, createdAt',
       usageStats: 'id',
     });

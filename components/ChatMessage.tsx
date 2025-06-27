@@ -1,14 +1,21 @@
 // /components/ChatMessage.tsx
 'use client';
+
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { ChatMessage } from '@/types';
 import { motion } from 'framer-motion';
 import {
   Bot,
   Check,
+  ChevronDown,
   Clipboard,
   Edit,
-  Paperclip,
   RefreshCw,
+  Sparkles,
   Trash2,
   User,
   X,
@@ -83,29 +90,22 @@ const ChatMessageComponent: FC<ChatMessageProps> = ({
           isBot ? 'bg-[#1C1C1C]' : 'bg-blue-600'
         }`}
       >
-        {message.attachments && message.attachments.length > 0 && (
-          <div className="p-3 border-b border-black/20">
-            <div className="flex flex-wrap gap-2">
-              {message.attachments.map((att, index) =>
-                att.type === 'image' ? (
-                  <img
-                    key={index}
-                    src={att.url}
-                    alt={att.name}
-                    className="max-w-xs max-h-48 rounded-md object-cover"
-                  />
-                ) : (
-                  <div
-                    key={index}
-                    className="bg-black/20 p-2 rounded-md flex items-center gap-2"
-                  >
-                    <Paperclip size={16} className="text-gray-400" />
-                    <span className="text-sm text-gray-300">{att.name}</span>
-                  </div>
-                )
-              )}
-            </div>
-          </div>
+        {isBot && message.reasoning && (
+          <Collapsible>
+            <CollapsibleTrigger className="group w-full flex justify-between items-center p-3 text-sm text-yellow-400 hover:bg-black/20 rounded-t-lg data-[state=open]:bg-black/20">
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} />
+                Reasoning
+              </div>
+              <ChevronDown
+                size={16}
+                className="group-data-[state=open]:rotate-180 transition-transform"
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="p-3 border-t border-black/30">
+              <MarkdownRenderer content={message.reasoning} />
+            </CollapsibleContent>
+          </Collapsible>
         )}
 
         <div className="p-3">
@@ -135,10 +135,13 @@ const ChatMessageComponent: FC<ChatMessageProps> = ({
             </div>
           ) : (
             <>
-              {message.content && (
+              {message.content ? (
                 <MarkdownRenderer content={message.content} />
-              )}
-              {isStreaming && isBot && (
+              ) : isStreaming && !message.reasoning ? (
+                <div className="text-gray-500">Thinking...</div>
+              ) : null}
+
+              {isStreaming && (
                 <motion.div
                   className="ml-1 inline-block bg-white w-1 h-4 align-text-bottom"
                   animate={{ opacity: [0, 1, 0] }}
@@ -160,6 +163,7 @@ const ChatMessageComponent: FC<ChatMessageProps> = ({
             <button
               onClick={handleCopy}
               className="p-1.5 hover:bg-gray-700 rounded-md"
+              title="Copy"
             >
               <Clipboard size={16} />
             </button>
@@ -167,6 +171,7 @@ const ChatMessageComponent: FC<ChatMessageProps> = ({
               <button
                 onClick={() => setIsEditing(true)}
                 className="p-1.5 hover:bg-gray-700 rounded-md"
+                title="Edit"
               >
                 <Edit size={16} />
               </button>
@@ -174,6 +179,7 @@ const ChatMessageComponent: FC<ChatMessageProps> = ({
             <button
               onClick={() => onDelete(message.id)}
               className="p-1.5 hover:bg-gray-700 rounded-md"
+              title="Delete"
             >
               <Trash2 size={16} />
             </button>
@@ -181,6 +187,7 @@ const ChatMessageComponent: FC<ChatMessageProps> = ({
               <button
                 onClick={onRegenerate}
                 className="p-1.5 hover:bg-gray-700 rounded-md"
+                title="Regenerate"
               >
                 <RefreshCw size={16} />
               </button>

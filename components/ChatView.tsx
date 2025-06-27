@@ -9,6 +9,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { ChatAttachment, ChatMessage, ChatThread } from '@/types';
 import { motion } from 'framer-motion';
@@ -33,6 +40,15 @@ import {
 } from './StreamingPerformance';
 import { SystemPromptDialog } from './SystemPromptDialog';
 
+// List of available models for the dropdown
+const GEMINI_MODELS = [
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+  {
+    id: 'gemini-2.5-flash-lite-preview-06–17',
+    name: 'Gemini 2.5 Flash Lite Preview',
+  },
+];
+
 interface ChatViewProps {
   thread: ChatThread | undefined;
   messages: ChatMessage[] | undefined;
@@ -42,6 +58,7 @@ interface ChatViewProps {
   onSendMessage: (
     content: string,
     threadId: string,
+    model: string,
     attachments?: ChatAttachment[]
   ) => void;
   onEditMessage: (id: string, content: string) => void;
@@ -67,6 +84,7 @@ const ChatView: FC<ChatViewProps> = ({
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isNavigatorOpen, setNavigatorOpen] = useState(false);
   const [isSystemPromptOpen, setSystemPromptOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(GEMINI_MODELS[0].id);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -97,11 +115,12 @@ const ChatView: FC<ChatViewProps> = ({
       .reverse()
       .find((m) => m.role === 'user');
     if (lastUserMessage) {
-      const lastBotMessage = messages[messages.length - 1];
-      if (lastBotMessage.role === 'bot') onDeleteMessage(lastBotMessage.id);
+      if (messages[messages.length - 1].role === 'bot')
+        onDeleteMessage(messages[messages.length - 1].id);
       onSendMessage(
         lastUserMessage.content,
         thread.id,
+        selectedModel,
         lastUserMessage.attachments
       );
     }
@@ -137,7 +156,7 @@ const ChatView: FC<ChatViewProps> = ({
   const handleSend = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if ((!input.trim() && attachments.length === 0) || !thread) return;
-    onSendMessage(input, thread.id, attachments);
+    onSendMessage(input, thread.id, selectedModel, attachments);
     setInput('');
     setAttachments([]);
   };
@@ -150,10 +169,20 @@ const ChatView: FC<ChatViewProps> = ({
       exit={{ opacity: 0 }}
       className="h-full flex flex-col text-gray-300 bg-black"
     >
+      {/* --- HEADER (with Model Selector restored) --- */}
       <header className="flex-shrink-0 p-4 border-b border-gray-800 flex items-center justify-between">
-        <div className="font-semibold text-white truncate pr-4">
-          {thread?.title}
-        </div>
+        <Select value={selectedModel} onValueChange={setSelectedModel}>
+          <SelectTrigger className="w-auto bg-transparent border-gray-700">
+            <SelectValue placeholder="Select a model" />
+          </SelectTrigger>
+          <SelectContent className="bg-[#1C1C1C] border-gray-800 text-white">
+            {GEMINI_MODELS.map((model) => (
+              <SelectItem key={model.id} value={model.id}>
+                {model.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="flex items-center gap-2">
           <Dialog open={isSystemPromptOpen} onOpenChange={setSystemPromptOpen}>
             <DialogTrigger asChild>
@@ -179,6 +208,7 @@ const ChatView: FC<ChatViewProps> = ({
         </div>
       </header>
 
+      {/* --- MESSAGE DISPLAY AREA --- */}
       <div className="flex-grow p-4 md:p-8 overflow-y-auto">
         <div className="space-y-6">
           {messages && messages.length > 0 ? (
@@ -202,6 +232,7 @@ const ChatView: FC<ChatViewProps> = ({
         </div>
       </div>
 
+      {/* --- ATTACHMENT PREVIEW --- */}
       {attachments.length > 0 && (
         <div className="flex-shrink-0 p-4 border-t border-gray-800">
           <div className="flex flex-wrap gap-2">
@@ -233,14 +264,17 @@ const ChatView: FC<ChatViewProps> = ({
         </div>
       )}
 
+      {/* --- PERFORMANCE METRICS --- */}
       {(isStreaming || performanceMetrics) && performanceMetrics && (
         <div className="flex-shrink-0 border-t border-gray-800">
           <StreamingPerformance metrics={performanceMetrics} />
         </div>
       )}
 
+      {/* --- INPUT FORM (Restored to original layout) --- */}
       <div className="flex-shrink-0 p-4 border-t border-gray-800">
         <form onSubmit={handleSend} className="flex items-center gap-2">
+          {/* Hidden inputs for file uploads */}
           <input
             type="file"
             ref={imageInputRef}
@@ -254,6 +288,7 @@ const ChatView: FC<ChatViewProps> = ({
             onChange={(e) => handleFileChange(e, 'file')}
             className="hidden"
           />
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -276,6 +311,8 @@ const ChatView: FC<ChatViewProps> = ({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Main Text Input */}
           <input
             type="text"
             value={input}
@@ -288,6 +325,8 @@ const ChatView: FC<ChatViewProps> = ({
             disabled={isStreaming}
             className="bg-transparent w-full focus:outline-none placeholder-gray-500 disabled:opacity-50"
           />
+
+          {/* Voice and Send/Stop Buttons */}
           {isSupported && (
             <Button
               type="button"
@@ -304,6 +343,7 @@ const ChatView: FC<ChatViewProps> = ({
               )}
             </Button>
           )}
+
           {isStreaming ? (
             <Button
               type="button"

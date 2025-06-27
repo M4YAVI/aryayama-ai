@@ -13,6 +13,7 @@ export interface ChatMessage {
   content: string;
   createdAt: Date;
   attachments?: ChatAttachment[];
+  reasoning?: string; // NEW: To store the AI's thought process
 }
 
 export interface ChatThread {

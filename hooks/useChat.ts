@@ -13,19 +13,16 @@ export function useChat(initialThreadId: string | null = null) {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
-
-  // State for real-time performance metrics
   const [performanceMetrics, setPerformanceMetrics] =
     useState<PerformanceMetrics | null>(null);
 
-  // Ref for AbortController to stop streaming
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Dexie live queries
   const threads = useLiveQuery(
     () => db.threads.orderBy('createdAt').reverse().toArray(),
     []
   );
+
   const messages = useLiveQuery(
     () =>
       activeThreadId
@@ -36,19 +33,18 @@ export function useChat(initialThreadId: string | null = null) {
         : [],
     [activeThreadId]
   );
+
   const activeThread = useLiveQuery(
     () => (activeThreadId ? db.threads.get(activeThreadId) : undefined),
     [activeThreadId]
   );
 
-  // Effect to select first thread on load
   useEffect(() => {
     if (!activeThreadId && threads && threads.length > 0) {
       setActiveThreadId(threads[0].id);
     }
   }, [threads, activeThreadId]);
 
-  // Handler to stop the fetch stream
   const handleStopStreaming = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -56,7 +52,6 @@ export function useChat(initialThreadId: string | null = null) {
     }
   }, []);
 
-  // Handler to create a new chat
   const handleNewChat = useCallback(async () => {
     const newThreadId = nanoid();
     await db.threads.add({
@@ -68,7 +63,6 @@ export function useChat(initialThreadId: string | null = null) {
     setSidebarOpen(true);
   }, []);
 
-  // Handler to delete a thread
   const handleDeleteThread = useCallback(
     async (threadId: string) => {
       const newActiveThread = threads?.find((t) => t.id !== threadId);
@@ -83,7 +77,6 @@ export function useChat(initialThreadId: string | null = null) {
     [activeThreadId, threads]
   );
 
-  // Handler to track usage
   const incrementRequestCount = useCallback(async () => {
     const today = new Date().toISOString().split('T')[0];
     await db.transaction('rw', db.usageStats, async () => {
@@ -107,7 +100,6 @@ export function useChat(initialThreadId: string | null = null) {
     });
   }, []);
 
-  // Handler to clear all data
   const clearAllData = useCallback(async () => {
     await db.delete();
     await db.open();
@@ -128,11 +120,11 @@ export function useChat(initialThreadId: string | null = null) {
     }
   };
 
-  // Main handler for sending a message and calculating performance
   const handleSendMessage = useCallback(
     async (
       content: string,
       threadId: string,
+      model: string,
       attachments?: ChatAttachment[]
     ) => {
       if (
@@ -183,10 +175,22 @@ export function useChat(initialThreadId: string | null = null) {
         .equals(threadId)
         .sortBy('createdAt');
       const systemPrompt = activeThread?.systemPrompt;
+
       const apiRequestBody = {
+        model: model,
         messages: [
-          ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-          ...messageHistory.map((m) => ({ role: m.role, content: m.content })),
+          ...(systemPrompt
+            ? [
+                {
+                  role: 'system',
+                  content: systemPrompt,
+                  createdAt: new Date(),
+                  id: '',
+                  threadId: '',
+                },
+              ]
+            : []),
+          ...messageHistory,
         ],
       };
 
@@ -197,12 +201,14 @@ export function useChat(initialThreadId: string | null = null) {
           body: JSON.stringify(apiRequestBody),
           signal: controller.signal,
         });
-        if (!response.ok || !response.body)
-          throw new Error(`API Error: ${response.statusText}`);
+        if (!response.ok || !response.body) {
+          throw new Error(
+            `API Error: ${response.status} ${response.statusText}`
+          );
+        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let botMessageContent = '';
         const botMessageId = nanoid();
 
         await db.messages.add({
@@ -210,20 +216,49 @@ export function useChat(initialThreadId: string | null = null) {
           threadId,
           role: 'bot',
           content: '',
+          reasoning: '',
           createdAt: new Date(),
         });
+
+        let reasoningText = '';
+        let answerText = '';
+        let buffer = '';
 
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           if (firstTokenTime === null) firstTokenTime = Date.now();
 
-          botMessageContent += decoder.decode(value, { stream: true });
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
 
-          const estimatedTokens = Math.round(botMessageContent.length / 4);
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const json = JSON.parse(line.substring(6));
+                if (json.type === 'reasoning') {
+                  reasoningText += json.data;
+                  await db.messages.update(botMessageId, {
+                    reasoning: reasoningText,
+                  });
+                } else if (json.type === 'answer') {
+                  answerText += json.data;
+                  await db.messages.update(botMessageId, {
+                    content: answerText,
+                  });
+                }
+              } catch (e) {
+                console.error('Failed to parse stream JSON', e);
+              }
+            }
+          }
+
+          const estimatedTokens = Math.round(
+            (reasoningText.length + answerText.length) / 4
+          );
           const elapsedTime = Date.now() - startTime;
           const tokensPerSecond = estimatedTokens / (elapsedTime / 1000) || 0;
-
           setPerformanceMetrics({
             timeToFirstToken: firstTokenTime
               ? (firstTokenTime - startTime) / 1000
@@ -231,10 +266,6 @@ export function useChat(initialThreadId: string | null = null) {
             tokensPerSecond: tokensPerSecond,
             totalTokens: estimatedTokens,
             totalTime: elapsedTime,
-          });
-
-          await db.messages.update(botMessageId, {
-            content: botMessageContent,
           });
         }
       } catch (error: any) {
@@ -246,7 +277,7 @@ export function useChat(initialThreadId: string | null = null) {
             id: nanoid(),
             threadId,
             role: 'bot',
-            content: 'Sorry, I ran into a problem. Please try again.',
+            content: `Sorry, I ran into a problem: ${error.message}`,
             createdAt: new Date(),
           });
         }
@@ -259,7 +290,6 @@ export function useChat(initialThreadId: string | null = null) {
     [isStreaming, activeThread, incrementRequestCount]
   );
 
-  // Return all state and functions
   return {
     threads,
     activeThread,

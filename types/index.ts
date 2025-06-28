@@ -6,6 +6,7 @@ export interface ChatAttachment {
   url: string;
 }
 
+// All clarification-related types have been removed.
 export interface ChatMessage {
   id: string;
   threadId: string;
@@ -13,7 +14,7 @@ export interface ChatMessage {
   content: string;
   createdAt: Date;
   attachments?: ChatAttachment[];
-  reasoning?: string; // NEW: To store the AI's thought process
+  reasoning?: string;
 }
 
 export interface ChatThread {
@@ -23,7 +24,6 @@ export interface ChatThread {
   systemPrompt?: string;
 }
 
-// --- NEW TYPES ---
 export interface Prompt {
   id: string;
   title: string;
@@ -32,8 +32,8 @@ export interface Prompt {
 }
 
 export interface UsageStats {
-  id: 'singleton'; // Use a fixed ID to ensure only one document
+  id: 'singleton';
   totalRequests: number;
   todayRequests: number;
-  lastResetDate: string; // Store date as ISO string e.g., '2023-10-27'
+  lastResetDate: string;
 }

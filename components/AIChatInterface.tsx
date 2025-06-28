@@ -1,4 +1,3 @@
-// /components/AiChatInterface.tsx
 'use client';
 
 import { useChat } from '@/hooks/useChat';

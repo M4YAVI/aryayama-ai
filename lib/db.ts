@@ -2,7 +2,7 @@
 import { ChatMessage, ChatThread, Prompt, UsageStats } from '@/types';
 import Dexie, { Table } from 'dexie';
 
-export class MySubClassedDexie extends Dexie {
+export class AiChatDatabase extends Dexie {
   threads!: Table<ChatThread>;
   messages!: Table<ChatMessage>;
   prompts!: Table<Prompt>;
@@ -10,10 +10,8 @@ export class MySubClassedDexie extends Dexie {
 
   constructor() {
     super('aiChatDatabase');
-    // --- BUMP THE VERSION NUMBER TO 3 ---
-    this.version(3).stores({
+    this.version(4).stores({
       threads: 'id, createdAt',
-      // Add 'reasoning' to the messages schema
       messages: 'id, threadId, createdAt, reasoning',
       prompts: 'id, title, createdAt',
       usageStats: 'id',
@@ -21,11 +19,12 @@ export class MySubClassedDexie extends Dexie {
   }
 }
 
-// Only initialize the database on the client-side
-let db: MySubClassedDexie | null = null;
+// Create a single, globally-accessible instance of the database.
+// This ensures that `db` is never null or undefined after its initial creation.
+const createDb = () => {
+  const db = new AiChatDatabase();
+  return db;
+};
 
-if (typeof window !== 'undefined') {
-  db = new MySubClassedDexie();
-}
-
-export { db };
+// Export the singleton instance.
+export const db = createDb();

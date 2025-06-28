@@ -21,4 +21,11 @@ export class MySubClassedDexie extends Dexie {
   }
 }
 
-export const db = new MySubClassedDexie();
+// Only initialize the database on the client-side
+let db: MySubClassedDexie | null = null;
+
+if (typeof window !== 'undefined') {
+  db = new MySubClassedDexie();
+}
+
+export { db };

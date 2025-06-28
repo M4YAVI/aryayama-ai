@@ -1,7 +1,8 @@
 // /components/MarkdownRenderer.tsx
 'use client';
-import { Clipboard } from 'lucide-react';
-import { FC, memo } from 'react';
+import { motion } from 'framer-motion';
+import { Check, Clipboard } from 'lucide-react';
+import { FC, memo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -12,59 +13,106 @@ interface CopyButtonProps {
 }
 
 const CopyButton: FC<CopyButtonProps> = ({ text }) => {
+  const [isCopied, setIsCopied] = useState(false);
+
   const handleCopy = () => {
     navigator.clipboard.writeText(text);
-    // You could add a toast notification here
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
   };
+
   return (
     <button
       onClick={handleCopy}
-      className="absolute top-2 right-2 p-1.5 bg-gray-700 rounded-md text-gray-300 hover:bg-gray-600 hover:text-white transition-all"
+      disabled={isCopied}
+      className="absolute top-2 right-2 p-1.5 bg-gray-700 rounded-md text-gray-300 hover:bg-gray-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-100 disabled:bg-green-800"
       aria-label="Copy code"
     >
-      <Clipboard size={16} />
+      {isCopied ? <Check size={16} /> : <Clipboard size={16} />}
     </button>
   );
 };
 
+const blockVariants = {
+  hidden: { opacity: 0, y: 5 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { type: 'spring', stiffness: 500, damping: 30 },
+  },
+};
+
 const MarkdownRenderer: FC<{ content: string }> = memo(({ content }) => {
   return (
-    <div className="prose prose-invert max-w-none prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0">
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      className="prose prose-invert max-w-none prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0"
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           h1: ({ node, ...props }) => (
-            <h1 className="text-2xl font-bold my-4" {...props} />
+            <motion.h1
+              variants={blockVariants}
+              className="text-2xl font-bold my-4"
+              {...props}
+            />
           ),
           h2: ({ node, ...props }) => (
-            <h2 className="text-xl font-bold my-3" {...props} />
+            <motion.h2
+              variants={blockVariants}
+              className="text-xl font-bold my-3"
+              {...props}
+            />
           ),
           h3: ({ node, ...props }) => (
-            <h3 className="text-lg font-semibold my-2" {...props} />
+            <motion.h3
+              variants={blockVariants}
+              className="text-lg font-semibold my-2"
+              {...props}
+            />
           ),
           ul: ({ node, ...props }) => (
-            <ul className="list-disc pl-6" {...props} />
+            <motion.ul
+              variants={blockVariants}
+              className="list-disc pl-6"
+              {...props}
+            />
           ),
           ol: ({ node, ...props }) => (
-            <ol className="list-decimal pl-6" {...props} />
+            <motion.ol
+              variants={blockVariants}
+              className="list-decimal pl-6"
+              {...props}
+            />
           ),
           li: ({ node, ...props }) => <li className="my-1" {...props} />,
+          p: ({ node, ...props }) => {
+            const hasBlockElement = node?.children.some(
+              (child) => child.type === 'element'
+            );
+            if (hasBlockElement) {
+              return <>{props.children}</>;
+            }
+            return <motion.p variants={blockVariants} {...props} />;
+          },
           code({ node, inline, className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || '');
             const codeText = String(children).replace(/\n$/, '');
             return !inline ? (
-              <div className="relative">
+              <motion.div variants={blockVariants} className="relative group">
                 <SyntaxHighlighter
                   style={vscDarkPlus}
                   language={match?.[1] || 'text'}
-                  PreTag="pre"
+                  PreTag="div"
                   className="bg-[#1e1e1e] p-4 rounded-md my-4 overflow-x-auto !text-sm"
                   {...props}
                 >
                   {codeText}
                 </SyntaxHighlighter>
                 <CopyButton text={codeText} />
-              </div>
+              </motion.div>
             ) : (
               <code
                 className="bg-[#111] text-sm font-mono px-1 py-0.5 rounded"
@@ -86,7 +134,7 @@ const MarkdownRenderer: FC<{ content: string }> = memo(({ content }) => {
       >
         {content}
       </ReactMarkdown>
-    </div>
+    </motion.div>
   );
 });
 

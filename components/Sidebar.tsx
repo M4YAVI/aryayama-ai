@@ -22,6 +22,7 @@ interface SidebarProps {
   onDeleteThread: (id: string) => void;
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
+  onOpenCommandK: () => void;
 }
 
 const Sidebar: FC<SidebarProps> = ({
@@ -32,6 +33,7 @@ const Sidebar: FC<SidebarProps> = ({
   onDeleteThread,
   isOpen,
   setIsOpen,
+  onOpenCommandK,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -61,6 +63,7 @@ const Sidebar: FC<SidebarProps> = ({
                 <Plus size={20} />
               </button>
               <button
+                onClick={onOpenCommandK}
                 className="p-2 text-gray-300 hover:bg-gray-700 rounded-md"
                 title="Search & Commands (Cmd+K)"
               >
